@@ -61,10 +61,7 @@ void setup() {
   mySerial.begin(9600);
   xbee.setSerial(mySerial);
   // Debugging output
-  Serial.begin(9600);
-  // set up the LCD's number of columns and rows: 
-//  lcd.begin(16, 2);
-  
+  Serial.begin(9600);    
 }
 
 uint8_t i=0;

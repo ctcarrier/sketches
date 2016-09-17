@@ -1,9 +1,12 @@
 #include <SoftwareSerial.h>
 #include <XBee.h>
+#include <Adafruit_RGBLCDShield.h>
+#include <utility/Adafruit_MCP23017.h>
 
 #define rxPin 2
 #define txPin 3
 
+Adafruit_RGBLCDShield lcd = Adafruit_RGBLCDShield();
 SoftwareSerial mySerial =  SoftwareSerial(rxPin,txPin);
 XBee xbee = XBee();
 XBeeResponse response = XBeeResponse();
@@ -24,11 +27,24 @@ void setup()  {
   mySerial.begin(9600);
 
   xbee.setSerial(mySerial);
+
+  // set up the LCD's number of columns and rows: 
+  lcd.begin(16, 2);
 }
 
 void wipeData(char *data) {
   for( int i = 0; i < sizeof(data);  ++i )
    data[i] = (char)0;
+}
+
+void writeToLcd(char *h, char *t) {
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Hum: ");
+  lcd.print(h);  
+  lcd.setCursor(0,1);        
+  lcd.print("Temp: ");
+  lcd.print(t);  
 }
 
 void loop() {
@@ -37,9 +53,7 @@ void loop() {
     
     if (xbee.getResponse().isAvailable()) {            
       if (xbee.getResponse().getApiId() == RX_16_RESPONSE || xbee.getResponse().getApiId() == RX_64_RESPONSE) {
-        // got a rx packet
-        char h[3];
-        char t[3];
+        // got a rx packet        
         
         if (xbee.getResponse().getApiId() == RX_16_RESPONSE) {   
           xbee.getResponse().getRx16Response(rx16);
@@ -49,6 +63,8 @@ void loop() {
           xbee.getResponse().getRx64Response(rx64);
           option = rx64.getOption();
           char buffer[rx64.getDataLength()];
+          char h[rx64.getDataLength()];
+          char t[rx64.getDataLength()];
           int bufferCounter = 0;
           Serial.print("DataLength: ");
           Serial.println(rx64.getDataLength());
@@ -76,6 +92,7 @@ void loop() {
           Serial.println(h);
           Serial.print("Temperature: ");
           Serial.println(t);
+          writeToLcd(h, t);
         }                        
       } else {
         Serial.println("Error in api Rx");
