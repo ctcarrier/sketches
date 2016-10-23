@@ -22,6 +22,8 @@ When a button is pressed, the backlight changes color.
 #define rxPin 2
 #define txPin 3
 
+int RXLED = 17;  // The RX LED has a defined Arduino pin
+
 #define MEASUREMENT_DELAY 10000
 
 // The shield uses the I2C SCL and SDA pins. On classic Arduinos
@@ -30,7 +32,7 @@ When a button is pressed, the backlight changes color.
 // the I2C bus.
 //Adafruit_RGBLCDShield lcd = Adafruit_RGBLCDShield();
 
-SoftwareSerial mySerial =  SoftwareSerial(rxPin, txPin);
+//SoftwareSerial mySerial =  SoftwareSerial(rxPin, txPin);
 XBee xbee = XBee();
 TxStatusResponse txStatus = TxStatusResponse();
 
@@ -39,10 +41,12 @@ DHT dht(DHTPIN, DHTTYPE);
 int numDigits(int num) {
   int res = 0;
   if (num < 10) res = 1;
-  else if (num >= 10 && num < 100) res = 2;
+  else if (num >= 10000) res = 5;
+  else if (num >= 1000) res = 4; 
   else if (num >= 100) res = 3;
-
-  return res;
+  else if (num >= 10 && num < 100) res = 2;    
+  
+  return res;  
 }
 
 Tx64Request getApiRequest(uint8_t *payload, int paloadLength) {
@@ -55,11 +59,13 @@ Tx64Request getApiRequest(uint8_t *payload, int paloadLength) {
 }
 
 void setup() {
+  pinMode(RXLED, OUTPUT);  // Set RX LED as an output
   pinMode(13, OUTPUT);
   pinMode(rxPin, INPUT);
   pinMode(txPin, OUTPUT);
-  mySerial.begin(9600);
-  xbee.setSerial(mySerial);
+  //mySerial.begin(9600);
+  Serial1.begin(9600);
+  xbee.setSerial(Serial1);
   // Debugging output
   Serial.begin(9600);    
 }
@@ -79,22 +85,27 @@ void loop() {
   // Check if any reads failed and exit early (to try again).
   if (isnan(h) || isnan(t) || isnan(f)) {
     Serial.println("Failed to read from DHT sensor!\n");
+    digitalWrite(RXLED, LOW);   // set the LED on
     //mySerial.println("Failed to read from DHT sensor!");
   }
   else {
-
+    digitalWrite(RXLED, HIGH);   // set the LED on
     // Compute heat index in Fahrenheit (the default)
     float hif = dht.computeHeatIndex(f, h);
     // Compute heat index in Celsius (isFahreheit = false)
     float hic = dht.computeHeatIndex(t, h, false);
     
-    int intH = (int) h;
-    int intF = (int) f;  
-    char charF[numDigits(f) +1];
-    char charH[numDigits(h) +1];
+    int intH = (int) (h * 100);
+    int intF = (int) (f * 100);  
+    Serial.println(h);
+    Serial.println(intH);
+    Serial.println(f);
+    Serial.println(intF);
+    char charF[numDigits(intF) +1];
+    char charH[numDigits(intH) +1];
     sprintf(charF, "%d", intF);  
     sprintf(charH, "%d", intH);  
-    int totalMessageLength = numDigits(h) + numDigits(f) + 1; //total length with delimiter
+    int totalMessageLength = numDigits(intH) + numDigits(intF) + 1; //total length with delimiter
     char totalMessage[totalMessageLength];
     strcpy(totalMessage, charH);
     strcat(totalMessage, ",");
