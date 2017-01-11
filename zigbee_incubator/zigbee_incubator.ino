@@ -21,10 +21,10 @@ When a button is pressed, the backlight changes color.
 
 int RXLED = 17;  // The RX LED has a defined Arduino pin
 
-#define MEASUREMENT_DELAY 10000
+#define MEASUREMENT_DELAY 600000
 
-#define RXPIN 10
-#define TXPIN 11
+#define RXPIN 5
+#define TXPIN 6
 
 #define TMP_007_I2C_ADDR 0x45
 
@@ -107,7 +107,7 @@ sensors_event_t getBpmData() {
   return event;
 }
 
-int numDigits(int num) {
+int numDigits(long num) {
   int res = 0;
   if (num < 10) res = 1;
   else if (num >= 10000) res = 5;
@@ -126,7 +126,7 @@ ZBTxRequest getApiRequest(uint8_t *payload) {
   //uint64_t addr64 = 0x0013A2004147284D;
   XBeeAddress64 addr = XBeeAddress64(0x00000000, 0x00000000);
   uint8_t payload2[] = { 0, 0 };
-  return ZBTxRequest(addr, payload, sizeof(payload));
+  return ZBTxRequest(addr, payload, strlen(payload));
 }
 
 void setup() {
@@ -151,56 +151,130 @@ void setup() {
 }
 
 void sendToXbee(float objTemp, float dieTemp, sensors_event_t luxEvent, sensors_event_t pressureEvent, boolean xbeeEnabled) {
-  /*int intH = (int) (h * 100);
-  int intF = (int) (f * 100);  
+
+  if (xbeeEnabled) {
+    sendBmpRequest(pressureEvent);       
+    sendTslRequest(luxEvent);
+    sendTmpRequest(objTemp, dieTemp);
+  }  
+}
+
+ZBTxRequest sendBmpRequest(sensors_event_t pressureEvent) {
+  float pressure = pressureEvent.pressure;
+  unsigned long intPressure = (unsigned long) pressure * 100;
+  float c;
+  bmp.getTemperature(&c);  
+  unsigned long intC = (unsigned long) (c * 100);    
   
-  char charF[numDigits(intF) +1];
-  char charH[numDigits(intH) +1];
-  sprintf(charF, "%d", intF);  
-  sprintf(charH, "%d", intH);  
-  int totalMessageLength = numDigits(intH) + numDigits(intF) + 1; //total length with delimiter
-  char totalMessage[totalMessageLength];
-  strcpy(totalMessage, charH);
+  char charC[numDigits(intC) + 1];
+  char charPressure[numDigits(intPressure) + 1];  
+  ltoa(intC, charC, 10);  
+  ltoa(intPressure, charPressure,10); 
+  char *sensorName = "bmp180,";
+  
+  int totalMessageLength = numDigits(intPressure) + numDigits(intC) + strlen(sensorName) + 2; //total length with 2 delimiters and null
+  char totalMessage[totalMessageLength] = {0}; 
+  strcat(totalMessage, sensorName);  
+  strcat(totalMessage, charPressure);
   strcat(totalMessage, ",");
-  strcat(totalMessage, charF);
+  strcat(totalMessage, charC);
   strcat(totalMessage, '\0');
   uint8_t *finalMessage = (uint8_t*)totalMessage;        
 
   Serial.println(totalMessage);
-  ZBTxRequest req = getApiRequest(finalMessage);    
+  ZBTxRequest req = getApiRequest(finalMessage);  
+
   for (int i = 0; i < sizeof(totalMessage); i++) {
     Serial.print((char)totalMessage[i]);  
   }    
   Serial.print("\n");
+  
+  handleXbeeMessage(req);
+}
 
-  if (xbeeEnabled) {
-    xbee.send(req);
+ZBTxRequest sendTmpRequest(float objTemp, float dieTemp) {  
+  unsigned long intObjTemp = (unsigned long) objTemp * 100;    
+  unsigned long intDieTemp = (unsigned long) (dieTemp * 100);    
   
-    // after sending a tx request, we expect a status response
-    // wait up to 5 seconds for the status response
-    if (xbee.readPacket(5000)) {
-        // got a response!
+  char charObjTemp[numDigits(intObjTemp) + 1];
+  char charDieTemp[numDigits(intDieTemp) + 1];  
+  ltoa(intObjTemp, charObjTemp, 10);  
+  ltoa(intDieTemp, charDieTemp,10); 
+  char *sensorName = "tmp007,";
   
-        // should be a znet tx status              
-      if (xbee.getResponse().getApiId() == TX_STATUS_RESPONSE) {
-         xbee.getResponse().getTxStatusResponse(txStatus);
-        
-         // get the delivery status, the fifth byte
-           if (txStatus.getDeliveryStatus() == SUCCESS) {
-              // success.  time to celebrate
-              Serial.println("Success\n");
-           } else {
-              // the remote XBee did not receive our packet. is it powered on?
-              Serial.println("Failure");
-           }
-        }      
-    } else if (xbee.getResponse().isError()) {
-      Serial.println("Error reading packet.  Error code: ");  
-      Serial.println(xbee.getResponse().getErrorCode());    
-    } else {
-      Serial.println("No response");
-    }         
-  }  */
+  int totalMessageLength = numDigits(intObjTemp) + numDigits(intDieTemp) + strlen(sensorName) + 2; //total length with 2 delimiters and null
+  char totalMessage[totalMessageLength] = {0}; 
+  strcat(totalMessage, sensorName);  
+  strcat(totalMessage, charObjTemp);
+  strcat(totalMessage, ",");
+  strcat(totalMessage, charDieTemp);
+  strcat(totalMessage, '\0');
+  uint8_t *finalMessage = (uint8_t*)totalMessage;        
+
+  Serial.println(totalMessage);
+  ZBTxRequest req = getApiRequest(finalMessage);  
+
+  for (int i = 0; i < sizeof(totalMessage); i++) {
+    Serial.print((char)totalMessage[i]);  
+  }    
+  Serial.print("\n");
+  
+  handleXbeeMessage(req);
+}
+
+ZBTxRequest sendTslRequest(sensors_event_t luxEvent) {
+  float light = luxEvent.light;
+  unsigned long intLight = (unsigned long) light * 100;  
+  
+  char charLight[numDigits(intLight) + 1];    
+  ltoa(intLight, charLight,10); 
+  char *sensorName = "tsl2561,";
+  
+  int totalMessageLength = numDigits(intLight) + strlen(sensorName) + 1; //total length with null
+  char totalMessage[totalMessageLength] = {0}; 
+  strcat(totalMessage, sensorName);    
+  strcat(totalMessage, charLight);
+  strcat(totalMessage, '\0');
+  uint8_t *finalMessage = (uint8_t*)totalMessage;        
+
+  Serial.println(totalMessage);
+  ZBTxRequest req = getApiRequest(finalMessage);  
+
+  for (int i = 0; i < sizeof(totalMessage); i++) {
+    Serial.print((char)totalMessage[i]);  
+  }    
+  Serial.print("\n");
+  
+  handleXbeeMessage(req);
+}
+
+void handleXbeeMessage(ZBTxRequest req) {
+  xbee.send(req);
+  
+  // after sending a tx request, we expect a status response
+  // wait up to 5 seconds for the status response
+  if (xbee.readPacket(5000)) {
+      // got a response!
+
+      // should be a znet tx status              
+    if (xbee.getResponse().getApiId() == TX_STATUS_RESPONSE) {
+       xbee.getResponse().getTxStatusResponse(txStatus);
+      
+       // get the delivery status, the fifth byte
+         if (txStatus.getDeliveryStatus() == SUCCESS) {
+            // success.  time to celebrate
+            Serial.println("Success\n");
+         } else {
+            // the remote XBee did not receive our packet. is it powered on?
+            Serial.println("Failure");
+         }
+      }      
+  } else if (xbee.getResponse().isError()) {
+    Serial.println("Error reading packet.  Error code: ");  
+    Serial.println(xbee.getResponse().getErrorCode());    
+  } else {
+    Serial.println("No response");
+  }         
 }
 
 void validateReadings(float objTemp, float dieTemp, sensors_event_t luxEvent, sensors_event_t pressureEvent) {
@@ -284,16 +358,10 @@ void logReadings(float objTemp, float dieTemp, sensors_event_t luxEvent, sensors
 }
 
 uint8_t i=0;
+long runtime = 0;
 void loop() {    
-  delay(MEASUREMENT_DELAY);
-  long start = millis();
-  // Reading temperature or humidity takes about 250 milliseconds!
-  // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
-  //float h = htu.readHumidity();
-  // Read temperature as Celsius (the default)
-  //float c = htu.readTemperature();
-  // Read temperature as Fahrenheit (isFahrenheit = true)
-  //float f = convertToFahrenheit(c);
+  delay(MEASUREMENT_DELAY - runtime);
+  long start = millis();  
 
   float objTemp = tmp007.readObjTempC();
   float dieTemp = tmp007.readDieTempC();
@@ -303,7 +371,7 @@ void loop() {
 
   logReadings(objTemp, dieTemp, luxEvent, pressureEvent);
   validateReadings(objTemp, dieTemp, luxEvent, pressureEvent);
-  sendToXbee(objTemp, dieTemp, luxEvent, pressureEvent, false);
+  sendToXbee(objTemp, dieTemp, luxEvent, pressureEvent, true);
   
-  long runtime = millis() - start;    
+  runtime = millis() - start;    
 }

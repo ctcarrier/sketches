@@ -18,8 +18,6 @@ When a button is pressed, the backlight changes color.
 #define RXPIN 10
 #define TXPIN 11
 
-int RXLED = 17;  // The RX LED has a defined Arduino pin
-
 #define MEASUREMENT_DELAY 1000
 
 // The shield uses the I2C SCL and SDA pins. On classic Arduinos
