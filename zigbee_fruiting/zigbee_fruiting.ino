@@ -41,7 +41,7 @@ void loop() {
   Serial.println("\n\n\n\n");
   getAndProcessReadings();  
 
-  delay(10000);
+  delay(600000);
 }
 
 void getAndProcessReadings() {
