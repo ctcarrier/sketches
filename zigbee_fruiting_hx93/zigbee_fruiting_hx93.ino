@@ -1,6 +1,4 @@
 #include <Wire.h>
-#include <SHT1x.h>
-#include <Adafruit_AM2315.h>
 
 #include <SoftwareSerial.h>
 #include <XBee.h>
@@ -12,9 +10,6 @@
 #define TXPIN 6
 
 int RXLED = 17;
-
-SHT1x sht1x(dataPin, clockPin);
-//Adafruit_AM2315 am2315;
 
 XBee xbee = XBee();
 ZBTxStatusResponse txStatus = ZBTxStatusResponse();
@@ -28,31 +23,32 @@ void setup() {
   Serial.begin(9600);
   Serial.println("Starting sensors");
   pinMode(RXLED, OUTPUT);  // Set RX LED as an output
+  pinMode(A0, INPUT);
+  pinMode(A4, INPUT);
 
   xbee.setSerial(mySerial);
-
-  /*while (! am2315.begin()) {
-    Serial.println("Sensor not found, check wiring & pullups!");
-    delay(5000);
-  }*/
 }
 
 void loop() {
   Serial.println("\n\n\n\n");
   getAndProcessReadings();
 
-  delay(60000);
+  delay(10000);
 }
 
 void getAndProcessReadings() {
-  Serial.println("Getting and proceseing");
-  float shtTemp = sht1x.readTemperatureC();
-  float shtHumidity = sht1x.readHumidity();
+  Serial.println("Getting and proceseing");  
 
-  //float amHumidity = am2315.readHumidity();
-  //float amTemp = am2315.readTemperature();
+  int tempResist = analogRead(A0);
+  float tempVoltage = tempResist * (5.0 / 1023.0);
 
-  handleData(shtHumidity, shtTemp, "SHT01", "Error reading from SHT01 sensor.\n");
+  int humidityResist = analogRead(A4);
+  float humidityVoltage = humidityResist * (5.0 / 1023.0);
+
+  float finalHumidity = humidityVoltage * 100.0;
+  float finalF =  (tempVoltage/.005848) - 4;
+
+  handleData(finalHumidity, finalF, "HX93", "Error reading from HX93 sensor.\n");
   //handleData(amHumidity, amTemp, "AM2315", "Error reading from AM2315 sensor.\n");
 }
 
@@ -76,8 +72,8 @@ int numDigits(long num) {
 
 ZBTxRequest sendHumidityAndTempRequest(float humidity, float temp, char const * sensorName) {
   if (xbeeEnabled) {
-    unsigned long intHumidity = (unsigned long) humidity * 100;
-    unsigned long intC = (unsigned long) (temp * 100);
+    unsigned long intHumidity = (unsigned long) (humidity * 100.0);
+    unsigned long intC = (unsigned long) (temp * 100.0);
 
     char charC[numDigits(intC) + 1];
     char charHumidity[numDigits(intHumidity) + 1];

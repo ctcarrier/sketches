@@ -137,7 +137,7 @@ void setup() {
   
   // Debugging output
   Serial.begin(9600); 
-  mySerial.begin(9600);   
+  mySerial.begin(9600);
 
   xbee.setSerial(mySerial);
   

@@ -1,6 +1,4 @@
 #include <Wire.h>
-#include <SHT1x.h>
-#include <Adafruit_AM2315.h>
 
 #include <SoftwareSerial.h>
 #include <XBee.h>
@@ -11,10 +9,14 @@
 #define RXPIN 5
 #define TXPIN 6
 
-int RXLED = 17;
+#define HX93_TEMP A0
+#define HX93_RH A4
 
-SHT1x sht1x(dataPin, clockPin);
-//Adafruit_AM2315 am2315;
+#define DTM_TEMP A1
+#define DTM_RH A2
+#define DTM_GAS A3
+
+int RXLED = 17;
 
 XBee xbee = XBee();
 ZBTxStatusResponse txStatus = ZBTxStatusResponse();
@@ -28,38 +30,69 @@ void setup() {
   Serial.begin(9600);
   Serial.println("Starting sensors");
   pinMode(RXLED, OUTPUT);  // Set RX LED as an output
+  pinMode(A0, INPUT);
+  pinMode(A4, INPUT);
 
   xbee.setSerial(mySerial);
-
-  /*while (! am2315.begin()) {
-    Serial.println("Sensor not found, check wiring & pullups!");
-    delay(5000);
-  }*/
 }
 
 void loop() {
   Serial.println("\n\n\n\n");
   getAndProcessReadings();
+  getAndProcessDtmReadings();
 
-  delay(60000);
+  delay(10000);
 }
 
 void getAndProcessReadings() {
-  Serial.println("Getting and proceseing");
-  float shtTemp = sht1x.readTemperatureC();
-  float shtHumidity = sht1x.readHumidity();
+  Serial.println("Getting and proceseing");  
 
-  //float amHumidity = am2315.readHumidity();
-  //float amTemp = am2315.readTemperature();
+  int tempResist = analogRead(HX93_TEMP);
+  float tempVoltage = tempResist * (5.0 / 1023.0);
 
-  handleData(shtHumidity, shtTemp, "SHT01", "Error reading from SHT01 sensor.\n");
-  //handleData(amHumidity, amTemp, "AM2315", "Error reading from AM2315 sensor.\n");
+  int humidityResist = analogRead(HX93_RH);
+  float humidityVoltage = humidityResist * (5.0 / 1023.0);
+
+  float finalHumidity = humidityVoltage * 100.0;
+  float finalF =  (tempVoltage/.005848) - 4;
+
+  handleData(finalHumidity, finalF, "HX93", "Error reading from HX93 sensor.\n");  
+}
+
+void getAndProcessDtmReadings() {
+  Serial.println("Getting and proceseing");  
+
+  int tempResist = analogRead(DTM_TEMP);
+  float tempVoltage = tempResist * (5.0 / 1023.0);
+
+  int humidityResist = analogRead(DTM_RH);
+  float humidityVoltage = humidityResist * (5.0 / 1023.0);
+
+  int gasResist = analogRead(DTM_GAS);
+  float gasVoltage = humidityResist * (5.0 / 1023.0);
+
+  float finalHumidity = ((humidityVoltage / 5.0) * 100.0); //%
+  float finalF =  ((tempVoltage / 5.0) * 100.0) + 40; //sensor range is 40F - 140F
+  float finalGas = ((gasVoltage / 5.0) * 2000); //ppm CO2
+
+  handleDataWithGas(finalHumidity, finalF, finalGas, "22DTM51", "Error reading from 22DTM51 sensor.\n");
 }
 
 void handleData(float humidity, float temp, char const * sensorName, char const * message) {
-  if (validateReadings(humidity, temp, message)) {
+  float readings[2] = {humidity, temp};
+  int readingSize = (int)( sizeof(readings) / sizeof(readings[0]) );
+  if (validateReadings(readings, readingSize, message)) {
     logReadings(humidity, temp, sensorName);
     sendHumidityAndTempRequest(humidity, temp, sensorName);
+  }
+}
+
+void handleDataWithGas(float humidity, float temp, float ppm, char const * sensorName, char const * message) {
+  float readings[3] = {humidity, temp, ppm};
+  int readingSize = (int)( sizeof(readings) / sizeof(readings[0]) );
+  if (validateReadings(readings, readingSize, message)) {
+    logReadings(humidity, temp, sensorName);
+    sendHumidityAndTempAndGasRequest(humidity, temp, ppm, sensorName);
   }
 }
 
@@ -76,8 +109,8 @@ int numDigits(long num) {
 
 ZBTxRequest sendHumidityAndTempRequest(float humidity, float temp, char const * sensorName) {
   if (xbeeEnabled) {
-    unsigned long intHumidity = (unsigned long) humidity * 100;
-    unsigned long intC = (unsigned long) (temp * 100);
+    unsigned long intHumidity = (unsigned long) (humidity * 100.0);
+    unsigned long intC = (unsigned long) (temp * 100.0);
 
     char charC[numDigits(intC) + 1];
     char charHumidity[numDigits(intHumidity) + 1];
@@ -91,6 +124,43 @@ ZBTxRequest sendHumidityAndTempRequest(float humidity, float temp, char const * 
     strcat(totalMessage, charHumidity);
     strcat(totalMessage, ",");
     strcat(totalMessage, charC);
+    strcat(totalMessage, '\0');
+    uint8_t *finalMessage = (uint8_t*)totalMessage;
+
+    Serial.println(totalMessage);
+    ZBTxRequest req = getApiRequest(finalMessage);
+
+    for (int i = 0; i < sizeof(totalMessage); i++) {
+      Serial.print((char)totalMessage[i]);
+    }
+    Serial.print("\n");
+
+    handleXbeeMessage(req);
+  }
+}
+
+ZBTxRequest sendHumidityAndTempAndGasRequest(float humidity, float temp, float ppm, char const * sensorName) {
+  if (xbeeEnabled) {
+    unsigned long intHumidity = (unsigned long) (humidity * 100.0);
+    unsigned long intC = (unsigned long) (temp * 100.0);
+    unsigned long intPpm = (unsigned long) (ppm * 100.0);
+
+    char charC[numDigits(intC) + 1];
+    char charHumidity[numDigits(intHumidity) + 1];
+    char charPpm[numDigits(intPpm) + 1];
+    ltoa(intC, charC, 10);
+    ltoa(intHumidity, charHumidity, 10);
+    ltoa(intPpm, charPpm, 10);
+
+    int totalMessageLength = numDigits(intHumidity) + numDigits(intC) + numDigits(intPpm) + strlen(sensorName) + 3; //total length with 2 delimiters and null
+    char totalMessage[totalMessageLength] = {0};
+    strcat(totalMessage, sensorName);
+    strcat(totalMessage, ",");
+    strcat(totalMessage, charHumidity);
+    strcat(totalMessage, ",");
+    strcat(totalMessage, charC);
+    strcat(totalMessage, ",");
+    strcat(totalMessage, charPpm);
     strcat(totalMessage, '\0');
     uint8_t *finalMessage = (uint8_t*)totalMessage;
 
@@ -135,13 +205,15 @@ void handleXbeeMessage(ZBTxRequest req) {
   }
 }
 
-boolean validateReadings(float humidity, float temp, char const * message) {
+boolean validateReadings(float readings[], int readingSize, char const * message) {
   // Check if any reads failed and exit early (to try again).
-  if (isnan(humidity) || isnan(temp)) {
-    Serial.println(message);
-    digitalWrite(RXLED, LOW);   // set the LED on
-    return false;
-  }
+  for (int i = 0; i < readingSize; i++) {
+    if (isnan(readings[i])) {
+      digitalWrite(RXLED, LOW);   // set the LED on
+      Serial.println(message);    
+      return false;
+    }
+  }  
   digitalWrite(RXLED, HIGH);   // set the LED on
   return true;
 }
